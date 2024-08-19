@@ -1,0 +1,91 @@
+gp3 400G 이상 할당시 iops 증가 가능, 64000까지
+
+rds 프록시 사용시 성능향상
+쿼리 캐싱, 커넥션 제어, 트랜젝션, LB 
+과제 상황에서는 큰 문제 없음.
+
+rds 커넥션 개수 문제. 결국 proxy 써야 함.
+
+
+
+
+
+curl -fsSL https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.0.0/website/content/en/docs/getting-started/getting-started-with-karpenter/cloudformation.yaml  > "${TEMPOUT}" \
+&& aws cloudformation deploy \
+  --stack-name "Karpenter-wsi-eks-cluster" \
+  --template-file "${TEMPOUT}" \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides "ClusterName=wsi-eks-cluster"
+
+eksctl create cluster -f - <<EOF
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: ${CLUSTER_NAME}
+  region: ${AWS_DEFAULT_REGION}
+  version: "${K8S_VERSION}"
+  tags:
+    karpenter.sh/discovery: ${CLUSTER_NAME}
+	
+vpc:
+  subnets:
+    private:
+      ap-northeast-2b:
+        id: subnet-016f807387a17d434
+      ap-northeast-2c:
+        id: subnet-0be26f4533bfaf3f2
+iam:
+  withOIDC: true
+  podIdentityAssociations:
+  - namespace: "${KARPENTER_NAMESPACE}"
+    serviceAccountName: karpenter
+    roleName: ${CLUSTER_NAME}-karpenter
+    permissionPolicyARNs:
+    - arn:${AWS_PARTITION}:iam::${AWS_ACCOUNT_ID}:policy/KarpenterControllerPolicy-${CLUSTER_NAME}
+
+iamIdentityMappings:
+- arn: "arn:${AWS_PARTITION}:iam::${AWS_ACCOUNT_ID}:role/KarpenterNodeRole-${CLUSTER_NAME}"
+  username: system:node:{{EC2PrivateDNSName}}
+  groups:
+  - system:bootstrappers
+  - system:nodes
+  ## If you intend to run Windows workloads, the kube-proxy group should be specified.
+  # For more information, see https://github.com/aws/karpenter/issues/5099.
+  # - eks:kube-proxy-windows
+
+managedNodeGroups:
+- instanceType: t3.micro
+  amiFamily: AmazonLinux2
+  name: ${CLUSTER_NAME}-ng
+  desiredCapacity: 2
+  minSize: 1
+  maxSize: 10
+
+addons:
+- name: eks-pod-identity-agent
+EOF
+
+export CLUSTER_ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query "cluster.endpoint" --output text)"
+export KARPENTER_IAM_ROLE_ARN="arn:${AWS_PARTITION}:iam::${AWS_ACCOUNT_ID}:role/${CLUSTER_NAME}-karpenter"
+
+echo "${CLUSTER_ENDPOINT} ${KARPENTER_IAM_ROLE_ARN}"
+
+
+kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true
+kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
+kubectl set env ds aws-node -n kube-system WARM_IP_TARGET=5
+kubectl set env ds aws-node -n kube-system MINIMUM_IP_TARGET=2
+
+
+
+helm registry logout public.ecr.aws
+
+helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter --version "1.0.0" --namespace "karpenter" --create-namespace \
+  --set "settings.clusterName=wsi-eks-cluster" \
+  --set "settings.interruptionQueue=wsi-eks-cluster" \
+  --set controller.resources.requests.cpu=0.5 \
+  --set controller.resources.requests.memory=128Mi \
+  --set controller.resources.limits.cpu=0.5 \
+  --set controller.resources.limits.memory=128Mi \
+  --wait
