@@ -1,0 +1,113 @@
+cd ~/eks
+
+curl -LO https://github.com/derailed/k9s/releases/latest/download/k9s_linux_amd64.rpm
+sudo rpm -i k9s_linux_amd64.rpm
+
+kubectl apply -f ~/eks/ns.yaml
+
+helm repo add projectcalico https://docs.tigera.io/calico/charts
+echo '{ installation: {kubernetesProvider: EKS }}' > values.yaml
+kubectl create namespace tigera-operator
+helm install calico projectcalico/tigera-operator --version v3.28.1 --namespace tigera-operator
+helm install calico projectcalico/tigera-operator --version v3.28.1 -f values.yaml --namespace tigera-operator
+watch kubectl get pods -n calico-system
+
+helm repo add external-secrets https://charts.external-secrets.io
+helm install external-secrets \
+   external-secrets/external-secrets \
+    -n external-secrets \
+    --create-namespace \
+	--set installCRDs=true
+
+sleep 2m
+
+curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.7.2/docs/install/iam_policy.json
+aws iam create-policy \
+    --policy-name AWSLoadBalancerControllerIAMPolicy \
+    --policy-document file://iam_policy.json
+eksctl create iamserviceaccount \
+  --cluster=wsi-eks-cluster \
+  --namespace=kube-system \
+  --name=aws-load-balancer-controller \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --attach-policy-arn=arn:aws:iam::690677342176:policy/AWSLoadBalancerControllerIAMPolicy \
+  --approve \
+  --region ap-northeast-2
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update eks
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=wsi-eks-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller 
+
+
+eksctl create iamserviceaccount --name secretmanager --namespace wsi --cluster wsi-eks-cluster --attach-policy-arn arn:aws:iam::690677342176:policy/secrets_manager_full_access --region ap-northeast-2 --approve
+eksctl create iamserviceaccount --name dynamodb --namespace wsi --cluster wsi-eks-cluster --attach-policy-arn arn:aws:iam::690677342176:policy/dynamodb-kms-policy --region ap-northeast-2 --approve
+
+
+kubectl apply -f networkpolicy.yaml
+kubectl apply -f secretstore.yaml
+
+
+
+
+cd ~/eks/logging
+kubectl apply -f loggingns.yaml
+kubectl apply -f fluentd.yaml
+kubectl apply -f flunetbit.yaml
+
+
+
+cd ~/eks/customer
+sed -i -e "s/702661606257/690677342176/" ./deployment.yaml
+kubectl apply -f secret.yaml
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+
+cd ~/eks/product
+sed -i -e "s/702661606257/690677342176/" ./deployment.yaml
+kubectl apply -f secret.yaml
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+
+cd ~/eks/order
+sed -i -e "s/702661606257/690677342176/" ./deployment.yaml
+kubectl apply -f fluentbitns.yaml
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+kubectl apply -f configmap.yaml
+
+
+
+
+
+
+
+cd ~/eks
+sed -i -e "s/subnet-0befd2a4363295c1b/$AWSpubA/" ./ingress.yaml
+sed -i -e "s/subnet-0c122938cef92aeb3/$AWSpubB/" ./ingress.yaml
+sed -i -e "s/sg-0d331899df9a95935/$AWSalbsgID/" ./ingress.yaml
+
+
+kubectl apply -f ~/eks/ingress.yaml
+
+
+
+
+
+
+
+aws ecr get-login-password --region ap-northeast-2 | sudo docker login --username AWS --password-stdin 690677342176.dkr.ecr.ap-northeast-2.amazonaws.com
+
+sudo docker tag customer:latest 690677342176.dkr.ecr.ap-northeast-2.amazonaws.com/customer:latest
+sudo docker tag product:latest 690677342176.dkr.ecr.ap-northeast-2.amazonaws.com/product:latest
+sudo docker tag order:latest 690677342176.dkr.ecr.ap-northeast-2.amazonaws.com/order:latest
+
+sudo docker push 690677342176.dkr.ecr.ap-northeast-2.amazonaws.com/customer:latest
+sudo docker push 690677342176.dkr.ecr.ap-northeast-2.amazonaws.com/product:latest
+sudo docker push 690677342176.dkr.ecr.ap-northeast-2.amazonaws.com/order:latest
+
+
+
+

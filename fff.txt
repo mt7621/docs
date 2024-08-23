@@ -1,0 +1,146 @@
+cd ~/eks
+
+
+
+
+
+
+kubectl apply -f ~/eks/ns.yaml
+
+
+kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true
+kubectl set env ds aws-node -n kube-system WARM_PREFIX_TARGET=1
+kubectl set env ds aws-node -n kube-system WARM_IP_TARGET=5
+kubectl set env ds aws-node -n kube-system MINIMUM_IP_TARGET=2
+
+
+helm registry logout public.ecr.aws
+
+helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter --version "1.0.0" --namespace "karpenter" --create-namespace \
+  --set "settings.clusterName=wsi-eks-cluster" \
+  --set "settings.interruptionQueue=wsi-eks-cluster" \
+  --set controller.resources.requests.cpu=0.5 \
+  --set controller.resources.requests.memory=128Mi \
+  --set controller.resources.limits.cpu=0.5 \
+  --set controller.resources.limits.memory=128Mi \
+  --wait
+
+cat <<EOF | envsubst | kubectl apply -f -
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+spec:
+  template:
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["t"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t3.micro"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      expireAfter: 720h # 30 * 24h = 720h
+  limits:
+    cpu: 1000
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m
+---
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  kubelet:
+    maxPods: 7
+  amiFamily: Bottlerocket
+  role: "KarpenterNodeRole-wsi-eks-cluster" # replace with your cluster name
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "wsi-eks-cluster" # replace with your cluster name
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: "wsi-eks-cluster" # replace with your cluster name
+  amiSelectorTerms:
+    - id: "ami-0f40c2c2401518426"
+EOF
+
+
+
+
+
+
+
+	
+
+
+curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.7.2/docs/install/iam_policy.json
+aws iam create-policy \
+    --policy-name AWSLoadBalancerControllerIAMPolicy \
+    --policy-document file://iam_policy.json
+eksctl create iamserviceaccount \
+  --cluster=wsi-eks-cluster \
+  --namespace=kube-system \
+  --name=aws-load-balancer-controller \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --attach-policy-arn=arn:aws:iam::690677342176:policy/AWSLoadBalancerControllerIAMPolicy \
+  --approve \
+  --region ap-northeast-2
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update eks
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=wsi-eks-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --wait
+
+
+
+
+
+
+
+
+
+
+cd ~/eks/employee
+kubectl apply -f ~/eks/employee/deployment.yaml
+kubectl apply -f ~/eks/employee/service.yaml
+
+cd ~/eks/token
+kubectl apply -f ~/eks/token/deployment.yaml
+kubectl apply -f ~/eks/token/service.yaml
+
+
+
+
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+sleep 20
+kubectl autoscale deployment token-deploy --cpu-percent=50 --min=2 --max=30 -n wsi
+kubectl autoscale deployment employee-deploy --cpu-percent=50 --min=2 --max=30 -n wsi
+
+
+
+
+cd ~/eks
+  
+
+kubectl apply -f ~/eks/ingress.yaml
+
+
+
