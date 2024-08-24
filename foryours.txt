@@ -32,3 +32,5 @@ https://docs.aws.amazon.com/ko_kr/Route53/latest/DeveloperGuide/security.html
 https://docs.aws.amazon.com/ko_kr/Route53/latest/DeveloperGuide/resolver-dns-firewall.html
 
 https://kubernetes.io/docs/concepts/security/pod-security-standards/
+
+https://dya-only.notion.site/_25-_-3b21a1ffadf3437e950ce809181f693b
