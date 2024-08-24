@@ -96,8 +96,8 @@ kubectl apply -f httproute.yaml
 
 
 cd ../customer
-sed -i -e "s/702661606257/$AWSuserID/" ./deployment.yaml
-sed -i -e "s/wsc2024-db-cluster.cluster-cvuu26s24sdo.us-east-1.rds.amazonaws.com/$AWSrdsEndPoint/" ./deployment.yaml
+sed -i -e "s/702661606257/$awsuserid/" ./deployment.yaml
+sed -i -e "s/wsc2024-db-cluster.cluster-cvuu26s24sdo.us-east-1.rds.amazonaws.com/$awsrdsendpoint/" ./deployment.yaml
 kubectl apply -f deployment.yaml
 kubectl apply -f service.yaml
 
@@ -154,3 +154,18 @@ docker tag order-repo:latest 690677342176.dkr.ecr.us-east-1.amazonaws.com/order-
 docker push 690677342176.dkr.ecr.us-east-1.amazonaws.com/customer-repo:latest
 docker push 690677342176.dkr.ecr.us-east-1.amazonaws.com/product-repo:latest
 docker push 690677342176.dkr.ecr.us-east-1.amazonaws.com/order-repo:latest
+
+
+
+
+mkdir c o p
+mv customer c
+mv product p
+mv order o
+cp Dockerfile c
+cp Dockerfile p
+cp Dockerfile o
+
+sed -i -e "s/customer/product/" p/Dockerfile
+sed -i -e "s/customer/order/" o/Dockerfile
+

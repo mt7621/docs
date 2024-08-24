@@ -34,3 +34,4 @@ curl -fsSL https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.0.0/w
   --parameter-overrides "ClusterName=wsi-eks-cluster"
 
 
+kubectl apply -f ~/eks/ns.yaml
